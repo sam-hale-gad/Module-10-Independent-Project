@@ -1,0 +1,389 @@
+---
+title: "Non-Energy drivers of CPI"
+output: html_document
+date: "2023-09-05"
+---
+
+# Which indusries where the biggest drivers of non-energy related inflation between Februrary 2022 and February 2023?
+
+# Install Packages
+
+```{r setup, include=TRUE, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.height = 15, fig.width = 20)
+
+# Load library function
+fn_load_libraries <- function(){
+  # Package names
+  packages <- c(
+    "rstudioapi",
+    "tidyverse",
+    "janitor",
+    "stringr",
+    "ggplot2"
+  )
+  
+  # Install packages not yet installed
+  installed_packages <- packages %in% rownames(installed.packages())
+  if (any(installed_packages == FALSE)) {
+    install.packages(packages[!installed_packages])
+  }
+  
+  # Packages loading
+  lapply(packages, library, character.only = TRUE)
+}
+
+
+# load libar
+fn_load_libraries()
+
+
+# Set working directory
+current_dir <- dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(current_dir)
+
+getwd()
+
+```
+
+## Read in data
+
+First, let's read in some data. 
+
+```{r read_data}
+data_dir <- paste0(current_dir, "/data/")
+
+# file names
+file_cpi_by_product <- "cpi_detailed_reference_tables_table_4.csv"
+file_energy_intensity_by_product <- "CPI Energy Intensity of Household purchases, COICOP class level categories.csv"
+file_cpi_cont_by_energy_intensity_class <- "Contributions to Consumer Prices Index (CPI) inflation by energy intensity, percentage points, UK, January 2019 to February 2023.csv"
+
+# import raw data
+data_cpi_by_product <- read.csv(paste0(current_dir, "/data/", file_cpi_by_product))
+data_energy_intensity_by_product <- read.csv(paste0(current_dir, "/data/", file_energy_intensity_by_product))
+data_cpi_cont_by_energy_intensity_class <- read.csv(paste0(current_dir, "/data/", file_cpi_cont_by_energy_intensity_class))
+
+
+```
+
+
+## Tidy data
+
+```{r tidy_date}
+# tidy column names
+cpi_by_product <- janitor::clean_names(data_cpi_by_product)
+energy_intensity_by_product <- janitor::clean_names(data_energy_intensity_by_product)
+cpi_cont_by_energy_intensity_class <- janitor::clean_names(data_cpi_cont_by_energy_intensity_class)
+
+```
+
+We have different sources of data which individually give information about:
+
+1) the level of inflation for different products in the CPI 'basket'.
+2) the energy intestity for different products.
+3) the contribution to inflation of products grouped into energy intensity classes (Very low, Low, High, Very high, Energy, Rents)
+
+We are only going to look at the contribution to inflation for the 10.4% in February 2023. 
+
+First, we will consolidate the information we have into a single dataframe.
+
+
+
+```{r create_df, warning = FALSE}
+
+df <- energy_intensity_by_product
+
+df <- df %>% separate(coicop_class_level_item, 
+                      into = c("Code", "Description"),
+                      sep = ":",
+                      remove = TRUE) %>%
+  mutate(Code = stringr::str_squish(Code),
+         Description = stringr::str_squish(Description))
+ 
+
+
+cpi_by_product <- cpi_by_product %>% 
+  mutate(coicop_class_level_item = stringr::str_squish(coicop_class_level_item)) %>%
+  separate(coicop_class_level_item, 
+                      into = c("Code", "Description"),
+                      sep = "\\s",
+                      remove = FALSE,
+                      extra = "merge")
+
+
+cpi_by_product <- cpi_by_product %>%
+  select("Code", "Description", "weights", "x12_month_percentage_change_feb_2023")
+
+# df <- merge(df,
+#             cpi_by_product,
+#             by = "Code",
+#             all.x = TRUE)
+
+# manually amend values in cpi_by_product that are causing NAs in the merged df
+cpi_by_product <- cpi_by_product %>%
+  mutate(Code = case_when(
+    Code == "05.3.1/2" ~ "05.3.1",
+    Code == "06.1.2/3" ~ "06.1.2",
+    Code == "06.2.1/3" ~ "06.2.1",
+    Code == "07.1.2/3" ~ "07.1.2",
+    Code == "08.2/3" ~ "08.2",
+    Code == "09.2.1/2" ~ "09.2.1",
+    Code == "09.3.4/5" ~ "09.3.4",
+    Code == "09.5.3/4" ~ "09.5.3",
+    Code == "12.1.2/3" ~ "12.1.2",
+    TRUE ~ Code
+  ))
+
+
+df <- merge(df,
+            cpi_by_product,
+            by = "Code",
+            all.x = TRUE)
+
+# Table of industry codes
+industry_codes <- cpi_by_product[2:13, c("Code", "Description")] %>%
+  rename(Industry_Code = Code,
+         Industry = Description)
+
+# Extract the industry code form the longer product code
+df <- df %>% mutate(Industry_Code = substr(Code, start = 1, stop = 2))
+
+# Add industry code and industry description for each product
+df <- merge(df,
+            industry_codes,
+            by = "Industry_Code",
+            all.x = TRUE)
+
+```
+
+## Inflation February 2023
+
+### Article's Figure 3 data:
+
+Data from the chart includes the amount of inflation caused by energy, rents, and different energy intensity classes.  
+
+```{r fig3_inflation}
+
+feb23_inflation <- as.data.frame(t(cpi_cont_by_energy_intensity_class %>% filter(month == "2023 FEB")))
+
+feb23_inflation <- feb23_inflation %>%
+  filter(V1 != "2023 FEB") %>%
+  rename(inflation_contribution = V1) %>%
+  mutate(inflation_contribution = as.numeric(inflation_contribution))
+
+print(feb23_inflation)
+
+total_inflation <- sum(feb23_inflation$inflation_contribution)
+print(total_inflation)
+
+```
+
+This is the 10.4% increase in CPI we see given in Figure 3 of the article. 
+
+Looking at the relative proportions of the different classes:
+
+```{r fig3_inflation_ppn}
+
+feb23_inflation <- feb23_inflation %>%
+  mutate(inflation_contribution_ppn = inflation_contribution/total_inflation,
+         inflation_contribution_pct = round(100*inflation_contribution_ppn,1))
+
+print(feb23_inflation)
+
+```
+
+### Calculating contribution to inflation for each product in our df
+
+In our products df, the 'weights' column gives the weight, out of 1000, that each product contributes in the basket of goods towards inflation. By multiplying the relative weight of each product by it's increase in price we can obtain the gross contribution to overall inflation for each product. 
+
+```{r df_inflation_cont}
+
+df <- df %>%
+  mutate(weight_proportion = weights/1000,
+         inflation_contribution = x12_month_percentage_change_feb_2023 * weight_proportion)
+
+head(df)
+
+df_total_inflation <- sum(df$inflation_contribution)
+print(df_total_inflation)
+
+```
+
+This is coming out higher than the 10.4% expected. This may be due to not all products mapping over completely from the detailed reference table to the data by energy intensity class level. Additionally, it seems the relative weight of the subcategories do not necessarily add up totally to the overall inflation. For example, using this method and summing the gross inflation of the 12 industry areas - Code '01' to '12' - gives a value of 10.7% compared to the overall figure of 10.4%:
+
+```{r cpi_by_product_head}
+head(cpi_by_product, 13)
+```
+
+```{r industries_total}
+sum((cpi_by_product$weights[2:13]/1000) * cpi_by_product$x12_month_percentage_change_feb_2023[2:13])
+```
+
+In order to make further analysis easier, we will use the relative contributions to overall inflation that we have found in df, and scale the gross contributions so that they total 10.42%:
+
+```{r scale_inflation_contribution}
+
+df <- df %>%
+  mutate(inflation_contribution_scaled = inflation_contribution *
+                                              total_inflation/df_total_inflation)
+
+# check
+sum(df$inflation_contribution_scaled)
+
+```
+
+
+## Non-Energy inflation
+
+We now want to analyse the biggest drivers of inflation other than energy, and see which industries are affected most by non-energy related factors. To do this we will strip out any products that are direct energy drivers, as well as indirect energy driven inflation by using the energy intensity of products. 
+
+### Explore the data
+
+First, let's look at a current summary of our data.
+
+By energy intensity class...
+
+```{r data_summary1}
+
+df_summary1 <- df %>%
+  group_by(energy_intensity_group) %>%
+  summarise(Count = n(),
+            Total_infl = sum(inflation_contribution_scaled),
+            Percentage = round(100 * sum(inflation_contribution_scaled) /
+                               sum(df$inflation_contribution_scaled), 1 ))
+
+df_summary1
+
+```
+...and by industry...
+
+```{r data_summary2, warning = FALSE}
+
+df_summary2 <- df %>%
+  group_by(Industry_Code, Industry) %>%
+  summarise(Count = n(),
+            Total_infl = sum(inflation_contribution_scaled),
+            Percentage = round(100 * sum(inflation_contribution_scaled) /
+                               sum(df$inflation_contribution_scaled), 1 ),
+            Ave_energy_intensity = mean(energy_intensity))
+
+df_summary2
+
+```
+
+
+### Overall CPI energy intensity
+
+Using the weights and the energy intensity provided we should be able to recreate the CPI energy intensity of 6.6% given in the article.
+
+```{r ovearll_energy_intensity}
+
+CPI_energy_intensity <- round(100*sum(df$weights * df$energy_intensity) / sum(df$weights), 2)
+CPI_energy_intensity
+
+```
+This looks reasonable.
+
+
+### Remove CPI divisions that contain direct energy components
+
+These are marked as being in the 'Energy' category in the Figure 3 data. These are "ELECTRICITY", "GAS", "LIQUID FUELS" and "FUELS & LUBRICANTS". They have an energy intensity between 57.2% and 68%, suggesting that there are some non-energy related contribution to inflation for these products. However, we will choose to remove them going forward.
+
+```{r remove_energy_components}
+df_non_energy <- df %>%
+  filter(energy_intensity_group != "Energy")
+
+CPI_energy_intensity_excl_energy <- round(100*sum(df_non_energy$weights * df_non_energy$energy_intensity) /
+                                                              sum(df_non_energy$weights), 1)
+
+print("Overall energy intensity, excluding CPI divisions that contain direct energy components:")
+CPI_energy_intensity_excl_energy
+
+```
+
+### Remove Indirect Energy inflation
+
+Now, for products which do not contain direct energy components, we want to calculate the indirect energy inflation and remove it.
+
+We first split the contribution to inflation for each product into energy effected (indirect energy inflation) and non-energy effected. We can then look at the non-energy effected inflation on its own.
+
+```{r remove_indirect_energy}
+df_non_energy <- df_non_energy %>%
+  mutate(energy_inflation = inflation_contribution_scaled * energy_intensity,
+         non_energy_inflation = inflation_contribution_scaled * (1-energy_intensity))
+
+# sum(df_non_energy$inflation_contribution_scaled)
+print("Total inflation for February 2023 that is due to the indirect effect of energy price increase:")
+sum(df_non_energy$energy_inflation)
+print("Percentage of total inflation for February 2023 that is due to the indirect effect of energy price increase:")
+round(100 * sum(df_non_energy$energy_inflation)/total_inflation, 2)
+
+print("Total inflation for February 2023 that is neither direct or indirect energy related:")
+sum(df_non_energy$non_energy_inflation)
+
+# 100 * sum(df_non_energy$energy_inflation)/sum(df_non_energy$inflation_contribution_scaled)
+
+print("Percentage of total inflation for February 2023 that is neither direct or indirect energy related:")
+round(100 * sum(df_non_energy$non_energy_inflation)/total_inflation, 2)
+
+
+```
+
+This suggests that 62% of the 12 month inflation in Feb 2023 was driven by non-energy and non-indirect energy effects, and that only 1% of inflation was driven by the indirect impact of rising energy prices on non-energy products and services.
+
+```{r df_summary3, warning=FALSE}
+
+df_summary3 <- df_non_energy %>%
+  group_by(Industry_Code, Industry) %>%
+  summarise(Count = n(),
+            total_inflation = round(sum(non_energy_inflation), 2),
+            Percentage = round(100 * sum(non_energy_inflation) /
+                               sum(df_non_energy$non_energy_inflation), 1 ),
+            
+            )
+
+df_summary3
+
+```
+
+```{r plot}
+
+ggplot(df_summary3, aes(x = reorder(Industry, -total_inflation), y = total_inflation)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(title = "Contribution to CPI from non-energy effects by industry",
+       x = "Industry",
+       y = "Inflation") +
+  coord_flip() +
+  theme_classic() +  # Horizontal orientation
+  theme(
+    plot.title = element_text(size = 16),  # Increase title size
+    axis.title.x = element_text(size = 14, face = "bold"),  # Increase x-axis label size
+    axis.title.y = element_text(size = 14, face = "bold"),   # Increase y-axis label size
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12)
+  )
+
+```
+
+### Largest drivers of inflation (Products and Services)
+
+```{r plot}
+
+largest_drivers <- df_non_energy %>%
+  arrange(desc(non_energy_inflation)) %>%
+  select(9, 3, 4, 5, 14)
+
+head(largest_drivers, 10)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
