@@ -48,13 +48,14 @@ getwd()
 
 ## Introduction
 
-
-
+Work in this notebook is based on the ONS article on energy intensity of products and services in the CPI basket, which can be found here:
 
 The energy intensity of the Consumer Prices Index: 2022
 https://www.ons.gov.uk/economy/inflationandpriceindices/articles/theenergyintensityoftheconsumerpricesindex/2022#:~:text=We%20estimate%20that%20the%20Consumer,the%20production%20process%20of%20businesses.
 
+There has been an increase in CPI since the middle of 2021, and an even sharper increase over the last year since the invasion of Ukraine. While the focus of the article above is on energy driven inflation, and the indirect inflation of products due to rising energy prices, we try to focus here on the non-energy related drivers of inflation. We aim to remove primary inflation due to energy, but also the indirect effect in order to access other drivers of the recent high inflation increases.
 
+With the sharp increase in overall inflation since February 2022, lots of attention has been given to the rise in energy prices. As such, other reasons of inflation, for example because of Brexit or other policies, may have been muddied, and it is hard to distinuish other factors in  the cause for high inflation.
 
 
 ## Read in data
@@ -409,7 +410,7 @@ df_summary3
 
 ```
 
-```{r plot}
+```{r bar_plot}
 
 ggplot(df_summary3, aes(x = reorder(Industry, -total_inflation), y = total_inflation)) +
   geom_bar(stat = "identity", fill = "blue") +
@@ -430,7 +431,7 @@ ggplot(df_summary3, aes(x = reorder(Industry, -total_inflation), y = total_infla
 
 ### Largest drivers of inflation (Products and Services)
 
-```{r plot}
+```{r largest_drivers_products}
 
 largest_drivers <- df_non_energy %>%
   arrange(desc(non_energy_inflation)) %>%
