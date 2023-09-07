@@ -6,7 +6,7 @@ date: "2023-09-05"
 
 # Which indusries where the biggest drivers of non-energy related inflation between Februrary 2022 and February 2023?
 
-# Install Packages
+# Install Packages and Set Directory
 
 ```{r setup, include=TRUE, message = FALSE, warning = FALSE}
 knitr::opts_chunk$set(echo = TRUE, fig.height = 15, fig.width = 20)
@@ -45,6 +45,18 @@ getwd()
 
 ```
 
+
+## Introduction
+
+
+
+
+The energy intensity of the Consumer Prices Index: 2022
+https://www.ons.gov.uk/economy/inflationandpriceindices/articles/theenergyintensityoftheconsumerpricesindex/2022#:~:text=We%20estimate%20that%20the%20Consumer,the%20production%20process%20of%20businesses.
+
+
+
+
 ## Read in data
 
 First, let's read in some data. 
@@ -82,7 +94,7 @@ We have different sources of data which individually give information about:
 2) the energy intestity for different products.
 3) the contribution to inflation of products grouped into energy intensity classes (Very low, Low, High, Very high, Energy, Rents)
 
-We are only going to look at the contribution to inflation for the 10.4% in February 2023. 
+Initially, we are only going to look at the contribution to inflation for the 10.4% in February 2023. 
 
 First, we will consolidate the information we have into a single dataframe.
 
@@ -111,7 +123,22 @@ cpi_by_product <- cpi_by_product %>%
 
 
 cpi_by_product <- cpi_by_product %>%
-  select("Code", "Description", "weights", "x12_month_percentage_change_feb_2023")
+  select("Code", "Description", "weights",
+         "x12_month_percentage_change_nov_2022",
+         "x12_month_percentage_change_dec_2022",
+         "x12_month_percentage_change_jan_2023",
+         "x12_month_percentage_change_feb_2023",
+         "x12_month_percentage_change_mar_2023",
+         "x12_month_percentage_change_apr_2023",
+         "x12_month_percentage_change_may_2023",
+         "x12_month_percentage_change_jun_2023",
+         "x12_month_percentage_change_jul_2023",)
+
+cpi_by_product$x12_month_percentage_change_dec_2022 <-  
+  as.numeric(cpi_by_product$x12_month_percentage_change_dec_2022)
+cpi_by_product$x12_month_percentage_change_may_2023 <- 
+  as.numeric(cpi_by_product$x12_month_percentage_change_may_2023)
+
 
 # df <- merge(df,
 #             cpi_by_product,
@@ -139,6 +166,9 @@ df <- merge(df,
             by = "Code",
             all.x = TRUE)
 
+df$x12_month_percentage_change_dec_2022 <- as.numeric(df$x12_month_percentage_change_dec_2022)
+df$x12_month_percentage_change_may_2023 <- as.numeric(df$x12_month_percentage_change_may_2023)
+
 # Table of industry codes
 industry_codes <- cpi_by_product[2:13, c("Code", "Description")] %>%
   rename(Industry_Code = Code,
@@ -155,6 +185,40 @@ df <- merge(df,
 
 ```
 
+## Recnt CPI Inflation
+
+```{r cpi}
+
+cpi_cont_by_energy_intensity_class <- janitor::clean_names(data_cpi_cont_by_energy_intensity_class)
+
+cpi_cont_by_energy_intensity_class <- cpi_cont_by_energy_intensity_class %>% 
+  mutate(month = str_squish(str_to_title(month)),
+         total_cpi = rents + energy + very_high + high + low + very_low)
+
+
+###### Want to convert month column to data format but this doesn't seem to be working !?
+# cpi_cont_by_energy_intensity_class <- cpi_cont_by_energy_intensity_class %>% 
+#   mutate(month = as.Date(month, format = "%Y %b"))
+
+# glimpse(cpi_cont_by_energy_intensity_class)
+
+# For now just fudged by adding date to the csv file
+###### 
+
+cpi_cont_by_energy_intensity_class <- cpi_cont_by_energy_intensity_class %>% 
+  mutate(date = as.Date(date, format = "%d/%m/%Y"))
+
+ggplot(cpi_cont_by_energy_intensity_class, aes(x = date, y = total_cpi)) +
+  geom_line(color = "blue", linewidth = 2) +
+  labs(
+    title = "CPI inflation, percentage points, UK, January 2019 to February 2023 ",
+    y = "CPI Inflation"
+  ) +
+  theme_classic(base_size = 18)
+
+```
+
+
 ## Inflation February 2023
 
 ### Article's Figure 3 data:
@@ -163,10 +227,10 @@ Data from the chart includes the amount of inflation caused by energy, rents, an
 
 ```{r fig3_inflation}
 
-feb23_inflation <- as.data.frame(t(cpi_cont_by_energy_intensity_class %>% filter(month == "2023 FEB")))
+feb23_inflation <- as.data.frame(t(cpi_cont_by_energy_intensity_class %>% filter(month == "2023 Feb")))
 
 feb23_inflation <- feb23_inflation %>%
-  filter(V1 != "2023 FEB") %>%
+  filter(V1 != "2023 Feb" & V1 != "2023-02-01" & V1 != "10.42") %>%
   rename(inflation_contribution = V1) %>%
   mutate(inflation_contribution = as.numeric(inflation_contribution))
 
@@ -382,8 +446,163 @@ head(largest_drivers, 10)
 
 
 
+## Non-energy inflation through time [STILL A WORK IN PROGRESS]
+
+Let's expand our energy vs non-energy calculation for all teh last 9 months which we have in our cpi_by_product dataset.
+
+```{r time_series}
+
+overall_cpi <- c(cpi_by_product[[4]][[1]],
+                 cpi_by_product[[5]][[1]],
+                 cpi_by_product[[6]][[1]],
+                 cpi_by_product[[7]][[1]],
+                 cpi_by_product[[8]][[1]],
+                 cpi_by_product[[9]][[1]],
+                 cpi_by_product[[10]][[1]],
+                 cpi_by_product[[11]][[1]],
+                 cpi_by_product[[12]][[1]])
+
+x12_cols <- colnames(df)[8:16]
+
+for (col_name in x12_cols) {
+  
+  # create the inflation contribution for each product for each month usign the price increases and weights
+  infl_cont_col_name <- paste0(str_sub(col_name, start = 29, end = 36), "_infl_cont")
+  df[infl_cont_col_name] <- df[[col_name]] * df[["weight_proportion"]]
+  
+  col_sum <- sum(df[infl_cont_col_name], na.rm=TRUE)
+  
+  # scale so that the total contributions equals the recorded overall cpi
+  infl_cont_col_name_scaled <- paste0(str_sub(col_name, start = 29, end = 36), "_infl_cont_scaled")
+  
+  index <- which(x12_cols == col_name)
+  df[infl_cont_col_name_scaled] <- df[infl_cont_col_name] *
+                              (overall_cpi[[index]] / sum(df[infl_cont_col_name], na.rm = TRUE ))
+  
+  
+}
+
+# scaled_cols <- colnames(df)[30:38]
+# 
+# for (col_names in scaled_cols) {
+#   
+#   # create the energy and non-energy inflation for each month
+#   col_name_energy <- paste0(str_sub(col_name, start = 29, end = 36), "_energy")
+#   df[col_name_energy] <- df[col_names] * df[energy_intensity]
+# 
+#   
+# }
 
 
+######## Couldn't get the above loop working so long winded below
+df <- df %>%
+  mutate(
+    nov_2022_energy = nov_2022_infl_cont_scaled * energy_intensity,
+    dec_2022_energy = dec_2022_infl_cont_scaled * energy_intensity,
+    jan_2023_energy = jan_2023_infl_cont_scaled * energy_intensity,
+    feb_2023_energy = feb_2023_infl_cont_scaled * energy_intensity,
+    mar_2023_energy = mar_2023_infl_cont_scaled * energy_intensity,
+    apr_2023_energy = apr_2023_infl_cont_scaled * energy_intensity,
+    may_2023_energy = may_2023_infl_cont_scaled * energy_intensity,
+    jun_2023_energy = jun_2023_infl_cont_scaled * energy_intensity,
+    jun_2023_energy = jul_2023_infl_cont_scaled * energy_intensity
+    ) %>%
+  mutate(
+    nov_2022_non_energy = nov_2022_infl_cont_scaled - nov_2022_energy,
+    dec_2022_non_energy = dec_2022_infl_cont_scaled - dec_2022_energy,
+    jan_2023_non_energy = jan_2023_infl_cont_scaled - jan_2023_energy,
+    feb_2023_non_energy = feb_2023_infl_cont_scaled - feb_2023_energy,
+    mar_2023_non_energy = mar_2023_infl_cont_scaled - mar_2023_energy,
+    apr_2023_non_energy = apr_2023_infl_cont_scaled - apr_2023_energy,
+    may_2023_non_energy = may_2023_infl_cont_scaled - may_2023_energy,
+    jun_2023_non_energy = jun_2023_infl_cont_scaled - jun_2023_energy,
+    jun_2023_non_energy = jul_2023_infl_cont_scaled - jun_2023_energy
+  )
+
+
+```
+
+
+
+```{r time_series_summary}
+
+df_summary4 <- data.frame(month = c("2022-11-01",
+                                    "2022-12-01",
+                                    "2023-01-01",
+                                    "2023-02-01",
+                                    "2023-03-01",
+                                    "2023-04-01",
+                                    "2023-05-01",
+                                    "2023-06-01",
+                                    "2023-07-01"
+                                    ))
+
+df_summary4 <- df_summary4 %>%
+  mutate(
+    total_inflation = c(
+      sum(df$nov_2022_infl_cont_scaled, na.rm=TRUE),
+      sum(df$dec_2022_infl_cont_scaled, na.rm=TRUE),
+      sum(df$jan_2023_infl_cont_scaled, na.rm=TRUE),
+      sum(df$feb_2023_infl_cont_scaled, na.rm=TRUE),
+      sum(df$mar_2023_infl_cont_scaled, na.rm=TRUE),
+      sum(df$apr_2023_infl_cont_scaled, na.rm=TRUE),
+      sum(df$may_2023_infl_cont_scaled, na.rm=TRUE),
+      sum(df$jun_2023_infl_cont_scaled, na.rm=TRUE),
+      sum(df$jul_2023_infl_cont_scaled, na.rm=TRUE)),
+    
+    energy_inflation = c(
+      sum(df$nov_2022_energy, na.rm=TRUE),
+      sum(df$dec_2022_energy, na.rm=TRUE),
+      sum(df$jan_2023_energy, na.rm=TRUE),
+      sum(df$feb_2023_energy, na.rm=TRUE),
+      sum(df$mar_2023_energy, na.rm=TRUE),
+      sum(df$apr_2023_energy, na.rm=TRUE),
+      sum(df$may_2023_energy, na.rm=TRUE),
+      sum(df$jun_2023_energy, na.rm=TRUE),
+      sum(df$jul_2023_energy, na.rm=TRUE)),
+    
+    non_energy_inflation = c(
+      sum(df$nov_2022_non_energy, na.rm=TRUE),
+      sum(df$dec_2022_non_energy, na.rm=TRUE),
+      sum(df$jan_2023_non_energy, na.rm=TRUE),
+      sum(df$feb_2023_non_energy, na.rm=TRUE),
+      sum(df$mar_2023_non_energy, na.rm=TRUE),
+      sum(df$apr_2023_non_energy, na.rm=TRUE),
+      sum(df$may_2023_non_energy, na.rm=TRUE),
+      sum(df$jun_2023_non_energy, na.rm=TRUE),
+      sum(df$jul_2023_non_energy, na.rm=TRUE))
+          
+  )
+
+
+
+```
+
+```{r multiline_plot}
+
+df_summary4$month <- as.Date(df_summary4$month)
+
+ggplot(df_summary4, aes(x = month, y = non_energy_inflation)) +
+  geom_line(color = "blue", linewidth = 2) +
+  
+  labs(
+    title = "Non-energy driven CPI inflation",
+    y = "CPI Inflation"
+  ) +
+  theme_classic(base_size = 18)
+
+
+
+###### plot total inflation, energy inflation and non-energy inflation on single chart...
+
+
+# ...
+# ...
+
+
+
+
+```
 
 
 
